@@ -1,0 +1,17 @@
+[
+  {
+    "id": "1",
+    "name": "科技频道",
+    "items": [
+      { "bvid": "BV1xK4y1C7Qz", "title": "示例视频 1" },
+      { "bvid": "BV1QJ411W7Z3", "title": "示例视频 2" }
+    ]
+  },
+  {
+    "id": "2",
+    "name": "音乐频道",
+    "items": [
+      { "bvid": "BV1Ab411c7mD", "title": "示例音乐 1" }
+    ]
+  }
+]
