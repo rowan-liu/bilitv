@@ -33,6 +33,52 @@
     const src = `https://player.bilibili.com/player.html?bvid=${item.bvid}&page=1`;
     playerEl.innerHTML = `<div style="position:relative;height:100%"><div class="meta">${channel.name} — ${item.title}</div><iframe id="biliplayer" src="${src}" allowfullscreen></iframe></div>`;
     renderGuide();
+
+    // attach a message listener to detect player events (Bilibili may post messages)
+    // messages are logged for debugging; if an "ended"-like event is detected, go next
+    window.addEventListener('message', function onMsg(e){
+      try {
+        // log for inspection in devtools
+        console.debug('player message', e.data);
+        const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (d && (d.event === 'play_end' || d.type === 'ended' || d.action === 'ended')){
+          const ch = channels[currentIndex];
+          ch.playIndex = ( (ch.playIndex || 0) + 1 ) % (ch.items.length || 1);
+          loadChannel(currentIndex);
+        }
+      } catch(err) {
+        // ignore non-JSON messages
+      }
+    }, { once: false });
+  }
+
+  // Server-Sent Events: listen for remote control commands
+  try {
+    const es = new EventSource('/sse');
+    es.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        if (data && data.type === 'control'){
+          const p = data.payload || {};
+          if (p.action === 'tune' && typeof p.idx === 'number'){
+            currentIndex = p.idx % channels.length;
+            loadChannel(currentIndex);
+          }
+          if (p.action === 'next'){
+            const ch = channels[currentIndex];
+            ch.playIndex = ( (ch.playIndex || 0) + 1 ) % ( (ch.items && ch.items.length) || 1 );
+            loadChannel(currentIndex);
+          }
+          if (p.action === 'prev'){
+            const ch = channels[currentIndex];
+            ch.playIndex = ( (ch.playIndex || 0) - 1 + ( (ch.items && ch.items.length) || 1 ) ) % ( (ch.items && ch.items.length) || 1 );
+            loadChannel(currentIndex);
+          }
+        }
+      } catch(e) { console.warn('invalid SSE data', e); }
+    };
+  } catch(e){
+    console.warn('SSE not supported', e);
   }
 
   document.addEventListener('keydown', (e)=>{
