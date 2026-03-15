@@ -6,18 +6,71 @@
   <title>BiliTV - Channel Surf</title>
   <style>
     html,body,#app{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    body{overflow:hidden}
     #app{display:flex}
     #guide{width:300px;background:#111;color:#eee;padding:8px;overflow:auto}
     #guide.hidden{display:none}
     .channel{padding:8px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer}
     .channel.active{background:#222}
     .num{font-weight:bold;margin-right:8px}
-    #player{flex:1;background:#000;display:flex;align-items:center;justify-content:center;position:relative}
-    #player iframe{width:100%;height:100%;min-height:360px;border:0}
-    .meta{position:absolute;top:8px;left:8px;color:#fff;z-index:2;background:rgba(0,0,0,0.5);padding:6px;border-radius:4px;display:flex;align-items:center}
+    #player{position:absolute;inset:0;background:#000;overflow:hidden}
+    #player iframe{width:100%;height:100%;min-height:0;border:0}
+    #controlMask{position:absolute;left:0;right:0;bottom:0;height:120px;z-index:19;background:linear-gradient(to top,rgba(0,0,0,1) 0,rgba(0,0,0,.98) 28px,rgba(0,0,0,.78) 70px,rgba(0,0,0,0) 120px);pointer-events:none}
+    #interactionBlock{position:absolute;inset:0;z-index:18;background:transparent;pointer-events:auto;cursor:none}
+    #player .meta{position:absolute;top:10px;left:10px;color:#fff;z-index:16;background:rgba(0,0,0,0.55);backdrop-filter:blur(3px);padding:6px 8px;border-radius:7px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14);box-shadow:0 4px 16px rgba(0,0,0,.45)}
     #hint{position:fixed;bottom:8px;left:8px;color:#fff;z-index:10;background:rgba(0,0,0,0.4);padding:6px;border-radius:6px;font-size:13px}
     #importForm input, #importForm textarea{width:100%;box-sizing:border-box}
     #channelsList{margin-top:8px}
+    #tvShell{flex:1;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,#1b1b1b,#0a0a0a 65%);padding:18px}
+    #tvCabinet{position:relative;width:min(96vw,1550px);height:min(92vh,880px);border-radius:30px;padding:20px 24px 20px 20px;background:
+      linear-gradient(145deg,#5b4637,#36271e 58%,#261b15),
+      repeating-linear-gradient(12deg,rgba(255,255,255,.03) 0 2px,rgba(0,0,0,.03) 2px 5px);
+      box-shadow:0 24px 80px rgba(0,0,0,.72), inset 0 2px 0 rgba(255,255,255,.09), inset 0 -12px 22px rgba(0,0,0,.5);
+      display:grid;grid-template-columns:1fr 110px;gap:14px}
+    #tvCabinet::before{content:"";position:absolute;left:22px;right:22px;top:10px;height:10px;border-radius:99px;background:linear-gradient(to bottom,rgba(255,255,255,.18),rgba(255,255,255,0));pointer-events:none}
+    #tvCabinet::after{content:"BiliTV";position:absolute;right:30px;bottom:16px;font:700 12px/1.2 monospace;color:#d6b892;opacity:.8;letter-spacing:.08em}
+    #tvScreen{position:relative;border-radius:22px;overflow:hidden;background:#000;box-shadow:inset 0 0 0 3px rgba(255,255,255,.1), inset 0 0 95px rgba(0,0,0,.82), 0 10px 24px rgba(0,0,0,.45)}
+    #tvScreen::before{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,rgba(255,255,255,.06) 0,rgba(255,255,255,0) 20%,rgba(255,255,255,0) 80%,rgba(255,255,255,.05) 100%);z-index:9;pointer-events:none}
+    #tvScreen::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(to bottom,rgba(255,255,255,.05) 0,rgba(255,255,255,.05) 1px,transparent 2px,transparent 4px);mix-blend-mode:overlay;opacity:.22;z-index:10;pointer-events:none}
+    .noise{position:absolute;inset:0;pointer-events:none;z-index:11;opacity:.08;background-image:radial-gradient(rgba(255,255,255,.5) 1px, transparent 1px);background-size:3px 3px;animation:noiseMove .2s steps(2,end) infinite}
+    #tvPanel{border-radius:18px;background:linear-gradient(180deg,#2d231b,#1a130e);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);display:flex;flex-direction:column;align-items:center;padding:12px 8px;gap:10px}
+    .dial{width:66px;height:66px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#d8c8ae,#8b7355 60%,#4d3e2d 100%);box-shadow:inset 0 3px 5px rgba(255,255,255,.25), inset 0 -5px 8px rgba(0,0,0,.45)}
+    .grill{width:72px;height:140px;border-radius:8px;background:repeating-linear-gradient(to bottom,#111 0 2px,#262626 2px 5px)}
+    #osd{position:absolute;top:16px;right:16px;z-index:13;color:#8cff9b;background:rgba(0,0,0,.48);border:1px solid rgba(140,255,155,.35);font:700 14px/1.3 monospace;padding:8px 10px;border-radius:6px;text-shadow:0 0 8px rgba(140,255,155,.45)}
+    #powerOverlay{position:absolute;inset:0;z-index:14;display:none;background:#000;pointer-events:none}
+    #bootNoise{position:absolute;inset:0;background:radial-gradient(circle,#fff 1px,transparent 1px);background-size:3px 3px;opacity:.55;animation:noiseMove .08s steps(2,end) infinite}
+    #collapseLine{position:absolute;left:0;right:0;top:50%;height:3px;background:#d5ffdf;box-shadow:0 0 18px #8cff9b;opacity:0;transform-origin:center}
+    body.switching #tvScreen{animation:switchFlash .22s ease}
+    body.booting #powerOverlay{display:block;animation:bootFade 1.15s ease forwards}
+    body.powering-off #powerOverlay{display:block;opacity:1}
+    body.powering-off #collapseLine{opacity:1;animation:collapseLine .55s ease forwards}
+    body.zapping #powerOverlay{display:block;opacity:1;background:rgba(0,0,0,.65)}
+    body.zapping #bootNoise{opacity:.78}
+    body.power-off #powerOverlay{display:block;opacity:1}
+    body.power-off #player iframe{display:none}
+    .remote-modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:10020}
+    .remote-modal.hidden{display:none}
+    .remote-box{width:min(360px,92vw);background:linear-gradient(180deg,#2b2b2b,#171717);border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:14px;color:#f5f5f5;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+    .remote-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .remote-grid button,.remote-actions button{padding:10px;border:0;border-radius:8px;background:#323232;color:#fff;cursor:pointer}
+    .remote-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+    body.mouseless{cursor:none !important}
+    body.mouseless #tvShell,body.mouseless #tvShell *{cursor:none !important}
+    .remote-modal,.remote-modal *{cursor:auto}
+
+    /* TV fullscreen mode: hide guide and expand player to viewport */
+    body.tv-full #guide{display:none !important}
+    body.tv-full #tvShell{position:fixed !important; top:0; left:0; right:0; bottom:0; z-index:9999; padding:10px}
+    body.tv-full #tvCabinet{width:100vw;height:100vh;border-radius:0;padding:0;grid-template-columns:1fr}
+    body.tv-full #tvPanel{display:none}
+    body.tv-full #tvScreen{border-radius:0}
+    body.tv-full #player{display:block}
+    body.tv-full #player iframe{width:100% !important; height:100% !important; min-height:0}
+    body.tv-full #hint{display:none}
+    @keyframes noiseMove{0%{transform:translate(0,0)}100%{transform:translate(2px,-2px)}}
+    @keyframes switchFlash{0%{filter:brightness(1)}35%{filter:brightness(1.6)}100%{filter:brightness(1)}}
+    @keyframes bootFade{0%{opacity:1}72%{opacity:1}100%{opacity:0}}
+    @keyframes collapseLine{0%{transform:scaleX(1);opacity:1}100%{transform:scaleX(0);opacity:1}}
   </style>
 </head>
 <body>
@@ -25,6 +78,9 @@
     <aside id="guide">
       <div style="padding:6px;display:flex;gap:8px;align-items:center;">
         <button id="importBtn">导入 (I)</button>
+        <button id="tvBtn">电视模式: 关 (T)</button>
+        <button id="mouselessBtn">无鼠标: 开 (M)</button>
+        <button id="remoteBtn">遥控器 (R)</button>
         <a href="/remote.html" target="_blank" style="color:#9cf">远程控制</a>
       </div>
       <div id="importForm" style="display:none;padding:8px;border-top:1px solid rgba(255,255,255,0.04);">
@@ -34,9 +90,43 @@
       </div>
       <div id="channelsList"></div>
     </aside>
-    <main id="player"></main>
+    <section id="tvShell">
+      <div id="tvCabinet">
+        <div id="tvScreen">
+          <main id="player"></main>
+          <div id="osd">CH --</div>
+          <div id="powerOverlay">
+            <div id="bootNoise"></div>
+            <div id="collapseLine"></div>
+          </div>
+          <div class="noise"></div>
+        </div>
+        <div id="tvPanel">
+          <div class="dial" title="频道旋钮"></div>
+          <div class="dial" title="音量旋钮"></div>
+          <div class="grill" title="扬声器"></div>
+        </div>
+      </div>
+    </section>
   </div>
-  <div id="hint">键盘: ↑/↓ 切频道 · ←/→ 切上下集 · G 切换指南 · I 打开导入</div>
+  <div id="hint">键盘: ↑/↓ 切频道 · ←/→ 切上下集 · G 指南 · I 导入 · M 无鼠标 · R 遥控器 · P 电源</div>
+  <div id="remoteModal" class="remote-modal hidden">
+    <div class="remote-box">
+      <div style="font-weight:700;margin-bottom:8px">BiliTV 遥控器</div>
+      <div class="remote-grid">
+        <button data-cmd="ch-up">频道 +</button>
+        <button data-cmd="next">随机下一个</button>
+        <button data-cmd="ch-down">频道 -</button>
+        <button data-cmd="prev">上一个</button>
+        <button data-cmd="guide">指南</button>
+        <button data-cmd="tv">TV模式</button>
+      </div>
+      <div class="remote-actions">
+        <button data-cmd="power">电源 (P)</button>
+        <button data-cmd="close">关闭</button>
+      </div>
+    </div>
+  </div>
   <script src="/app.js"></script>
 </body>
 </html>

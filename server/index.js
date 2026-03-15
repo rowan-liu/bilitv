@@ -2,6 +2,13 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
+const bilibili = require('./bilibili');
+
+const METADATA_STALE_MS = parseInt(process.env.METADATA_STALE_MS || String(1000 * 60 * 60 * 6), 10); // 6 hours
+const WORKER_CHECK_INTERVAL_MS = parseInt(process.env.WORKER_CHECK_INTERVAL_MS || String(60 * 1000), 10); // 1 minute
+const WORKER_MAX_CONCURRENT = parseInt(process.env.WORKER_MAX_CONCURRENT || '3', 10);
+const WORKER_BATCH_LIMIT = parseInt(process.env.WORKER_BATCH_LIMIT || '20', 10);
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -57,6 +64,86 @@ async function saveChannels(channels) {
   await fsp.writeFile(DATA_PATH, JSON.stringify(channels, null, 2), 'utf8');
 }
 
+// Fetch metadata from Bilibili and persist into channels.json
+async function fetchAndSaveMetadata(bvid) {
+  if (!bvid) throw new Error('missing bvid');
+  try {
+    const meta = await bilibili.fetchMetadata(bvid);
+    // attach to channels.json
+    const channels = await loadChannels();
+    let updated = false;
+    for (const ch of channels) {
+      if (!ch.items) continue;
+      for (const item of ch.items) {
+        if (item.bvid === bvid) {
+          item.title = meta.title || item.title || '';
+          item.pic = meta.pic || item.pic || '';
+          item.owner = meta.owner || item.owner || '';
+          item.stat = meta.stat || item.stat || {};
+          item.lastFetchedAt = Date.now();
+          updated = true;
+        }
+      }
+    }
+    if (updated) {
+      await saveChannels(channels);
+      // broadcast to SSE clients
+      sendSseEvent({ type: 'metadata', payload: { bvid, meta: Object.assign({}, meta, { lastFetchedAt: Date.now() }) } });
+    }
+    return meta;
+  } catch (err) {
+    console.warn('fetchAndSaveMetadata error for', bvid, err && err.message);
+    throw err;
+  }
+}
+
+let workerRunning = false;
+async function metadataWorker() {
+  if (workerRunning) return;
+  workerRunning = true;
+  try {
+    const channels = await loadChannels();
+    const now = Date.now();
+    const toFetch = [];
+    for (const ch of channels) {
+      if (!ch.items) continue;
+      for (const item of ch.items) {
+        const last = item.lastFetchedAt || 0;
+        if (!last || (now - last) > METADATA_STALE_MS) {
+          toFetch.push(item.bvid);
+        }
+      }
+    }
+    if (toFetch.length === 0) return;
+    // limit batch size to avoid bursts
+    const tasks = toFetch.slice(0, WORKER_BATCH_LIMIT);
+    let idx = 0;
+    const concurrency = WORKER_MAX_CONCURRENT;
+    const runners = new Array(concurrency).fill(null).map(async () => {
+      while (true) {
+        let bvid;
+        if (idx >= tasks.length) break;
+        bvid = tasks[idx++];
+        try {
+          await fetchAndSaveMetadata(bvid);
+        } catch (e) {
+          // ignore individual failures
+        }
+      }
+    });
+    await Promise.all(runners);
+  } catch (e) {
+    console.warn('metadataWorker error', e && e.message);
+  } finally {
+    workerRunning = false;
+  }
+}
+
+// start worker
+setInterval(metadataWorker, WORKER_CHECK_INTERVAL_MS);
+// run one pass on startup (non-blocking)
+metadataWorker().catch(()=>{});
+
 app.get('/api/channels', async (req, res) => {
   const channels = await loadChannels();
   res.json(channels);
@@ -73,23 +160,29 @@ app.get('/api/metadata/:bvid', async (req, res) => {
   const bvid = req.params.bvid;
   if (!bvid) return res.status(400).json({ error: 'missing bvid' });
   try {
-    const apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
-    const r = await fetch(apiUrl, { headers: { 'User-Agent': 'BiliTV/1.0' } });
-    const json = await r.json();
-    if (json && json.code === 0 && json.data) {
-      const d = json.data;
-      const meta = {
-        bvid: bvid,
-        title: d.title,
-        owner: d.owner ? d.owner.name : (d.uploader || ''),
-        pic: d.pic,
-        stat: d.stat || {}
-      };
-      return res.json(meta);
-    } else {
-      return res.status(502).json({ error: 'bad upstream', details: json });
-    }
+    // fetch, persist and return
+    const meta = await fetchAndSaveMetadata(bvid);
+    res.json(meta);
   } catch (e) {
+    // if fetch failed, attempt to return any cached entry from channels.json
+    try {
+      const channels = await loadChannels();
+      for (const ch of channels) {
+        if (!ch.items) continue;
+        for (const item of ch.items) {
+          if (item.bvid === bvid) {
+            return res.json({
+              bvid,
+              title: item.title || '',
+              owner: item.owner || '',
+              pic: item.pic || '',
+              stat: item.stat || {},
+              lastFetchedAt: item.lastFetchedAt || null
+            });
+          }
+        }
+      }
+    } catch (e2) {}
     return res.status(500).json({ error: 'fetch failed', message: e.message });
   }
 });
@@ -128,9 +221,17 @@ app.post('/api/import', async (req, res) => {
   const channel = { id: id, name: name, items: bvids.map(bv => ({ bvid: bv, title: '' })) };
   channels.push(channel);
   await saveChannels(channels);
+  // asynchronously fetch metadata for these bvids (non-blocking)
+  (async () => {
+    for (const bv of bvids) {
+      try { await fetchAndSaveMetadata(bv); } catch (e) { /* ignore */ }
+    }
+  })();
   res.json({ ok: true, channel });
 });
 
-app.listen(PORT, () => {
-  console.log(`BiliTV server running at http://localhost:${PORT}`);
+const HOST = process.env.HOST || '::';
+app.listen(PORT, HOST, () => {
+  const hostLabel = (HOST === '::') ? 'localhost' : HOST;
+  console.log(`BiliTV server running at http://${hostLabel}:${PORT} (host=${HOST})`);
 });
