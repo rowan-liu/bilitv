@@ -3,6 +3,12 @@
 > A retro-TV styled, channel-surf Bilibili web player.
 > 一个“像看电视一样换台”的 Bilibili 复古电视风播放器。
 
+## 🌐 Official Entry / 官方入口
+
+- Main experience page / 主体验页：**https://www.huoru.me/bilitv/**
+- Project list on blog / 博客产品页：https://www.huoru.me/projects/
+- Blog homepage / 博客首页：https://www.huoru.me/
+
 ## Features / 功能亮点
 
 - Retro TV shell UI, OSD, scanline/noise, power on/off effects
@@ -55,3 +61,8 @@ Open / 打开: `http://localhost:3000`
 ![Screenshot 2](images/tg_image_2460782482.png)
 ![Screenshot 3](images/tg_image_3688463757.png)
 ![Screenshot 4](images/tg_image_776411316.png)
+
+---
+
+If you like this project, please visit and share the official page: **https://www.huoru.me/bilitv/**  
+如果你喜欢这个项目，欢迎访问和分享官方页面：**https://www.huoru.me/bilitv/**
